@@ -85,7 +85,7 @@ const App: Component = () => {
   function onJoin() {
     const host = prompt("host");
     if (host)
-      networking.initializeAsPeer(host).then((connection) => {
+      networking.initializeAsPeer(host)?.then((connection) => {
         connection.on("data", setWorld);
         setOnMessage(() => (message) => {
           connection.send(message);
