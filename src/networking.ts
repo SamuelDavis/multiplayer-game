@@ -44,12 +44,15 @@ class HostConnectionLost extends NetworkError {
 export default createRoot(() => {
   const CONNECTION_TIMEOUT = 3000;
   const RELIABLE = true;
-  const peer = new Peer({
-    host: "localhost",
-    port: 9000,
-    path: "/",
-    key: "local",
-  });
+  const peer =
+    window.location.hostname === "localhost"
+      ? new Peer({
+          host: "localhost",
+          port: 9000,
+          path: "/",
+          key: "local",
+        })
+      : new Peer();
   const [getPeer, setPeer] = createSignal<Peer>();
   const [getConnections, setConnections] = createSignal<DataConnection[]>([]);
   const [getErrors, setErrors] = createSignal<NetworkError[]>([]);
@@ -72,11 +75,11 @@ export default createRoot(() => {
   }, CONNECTION_TIMEOUT);
   peer.on("open", () => {
     clearTimeout(timeout);
-    return setPeer(peer);
-  });
-  peer.on("close", () => {
-    peer.destroy();
-    pushError(new SignalingServerConnectionLost());
+    peer.on("close", () => {
+      peer.destroy();
+      pushError(new SignalingServerConnectionLost());
+    });
+    setPeer(peer);
   });
 
   function initializeAsHost() {
@@ -88,14 +91,14 @@ export default createRoot(() => {
       }, CONNECTION_TIMEOUT);
       connection.on("open", () => {
         clearTimeout(timeout);
-        setConnections((rest) => [...rest, connection]);
-        setIncomingConnection(connection);
         connection.on("close", () => {
           setConnections((rest) =>
             rest.filter((conn) => conn.peer !== connection.peer)
           );
           pushError(new PeerConnectionLost(connection.peer));
         });
+        setConnections((rest) => [...rest, connection]);
+        setIncomingConnection(connection);
       });
     });
   }
@@ -111,10 +114,10 @@ export default createRoot(() => {
       }, CONNECTION_TIMEOUT);
       connection.on("open", () => {
         clearTimeout(timeout);
-        resolve(connection);
         connection.on("close", () => {
           pushError(new HostConnectionLost(host));
         });
+        resolve(connection);
       });
     });
   }
