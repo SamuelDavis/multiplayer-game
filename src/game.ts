@@ -7,6 +7,7 @@ export interface World extends IWorld {
     elapsed: number;
     then: number;
   };
+  messages: any[];
 }
 
 const timeSystem = defineSystem<[], World>((world) => {
@@ -31,4 +32,5 @@ export default createWorld<World>({
     elapsed: 0,
     then: performance.now(),
   },
+  messages: [],
 });

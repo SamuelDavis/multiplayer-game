@@ -4,9 +4,8 @@ import {
   createMemo,
   createSignal,
   For,
-  Show,
 } from "solid-js";
-import world, { update, World } from "./game";
+import world, { update } from "./game";
 import networking from "./networking";
 import Peer from "peerjs";
 
@@ -30,14 +29,24 @@ function isMessage(value: any): value is Message {
 }
 
 const App: Component = () => {
-  const [getWorld, setWorld] = createSignal(world, { equals: false });
-  const [getLocalMessages, setLocalMessages] = createSignal<Message[]>([]);
-  const [getRemoteMessages, setRemoteMessages] = createSignal<Message[]>([]);
-  const getMessages = createMemo(() =>
-    [...getLocalMessages(), ...getRemoteMessages()].sort(
-      (a, b) => a.date.getTime() - b.date.getTime()
-    )
+  function pushMessage(message: Message) {
+    setWorld((world) => ({
+      ...world,
+      messages: [
+        ...world.messages,
+        { ...message, date: new Date(message.date) },
+      ].sort((a, b) => {
+        if (!b) return 0;
+        return a.date.getTime() - b.date.getTime();
+      }),
+    }));
+  }
+
+  const [getOnMessage, setOnMessage] = createSignal<(message: Message) => void>(
+    () => {}
   );
+  const [getWorld, setWorld] = createSignal(world, { equals: false });
+  const getMessages = createMemo(() => getWorld().messages);
   createEffect(() => {
     networking
       .getConnections()
@@ -47,14 +56,7 @@ const App: Component = () => {
     const incoming = networking.getIncomingConnection();
     if (!incoming) return;
     incoming.on("data", (data) => {
-      if (isMessage(data)) {
-        const message: Message = { ...data, date: new Date(data.date) };
-        setRemoteMessages((rest) => [...rest, message]);
-        networking.getConnections().forEach((connection) => {
-          if (connection.peer === incoming.peer) return;
-          connection.send(message);
-        });
-      }
+      if (isMessage(data)) pushMessage(data);
     });
   });
 
@@ -77,25 +79,15 @@ const App: Component = () => {
     window.navigator.clipboard
       .writeText(id)
       .then(() => networking.initializeAsHost());
+    setOnMessage(() => pushMessage);
   }
 
   function onJoin() {
     const host = prompt("host");
     if (host)
       networking.initializeAsPeer(host).then((connection) => {
-        connection.on("data", (data) => {
-          if (isMessage(data)) {
-            setRemoteMessages((rest) => [
-              ...rest,
-              { ...data, date: new Date(data.date) },
-            ]);
-          } else {
-            setWorld(data as World);
-          }
-        });
-        createEffect(() => {
-          const message = getLocalMessages().pop();
-          console.debug(message);
+        connection.on("data", setWorld);
+        setOnMessage(() => (message) => {
           connection.send(message);
         });
       });
@@ -110,10 +102,7 @@ const App: Component = () => {
     if (!peer) throw new NotConnectedError();
     const date = new Date();
     const message: Message = { peer, date, text };
-    networking
-      .getConnections()
-      .forEach((connection) => connection.send(message));
-    setLocalMessages((rest) => [...rest, message]);
+    getOnMessage()(message);
     e.currentTarget.reset();
   }
 
@@ -122,7 +111,8 @@ const App: Component = () => {
       <header>
         <button onClick={onUpdate}>Update</button>
       </header>
-      <Show when={networking.isConnected()} keyed={false}>
+      <details open={networking.isConnected()}>
+        <summary>Connect</summary>
         <menu>
           <li>
             <button onClick={onHost}>Host</button>
@@ -131,8 +121,11 @@ const App: Component = () => {
             <button onClick={onJoin}>Join</button>
           </li>
         </menu>
-      </Show>
-      <pre>{JSON.stringify(getTime(), null, 2)}</pre>
+      </details>
+      <details>
+        <summary>Game</summary>
+        <pre>{JSON.stringify(getTime(), null, 2)}</pre>
+      </details>
       <details open={networking.getPeers().length > 0}>
         <summary>Peers</summary>
         <ol>
