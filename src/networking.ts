@@ -104,6 +104,7 @@ export default createRoot(() => {
   }
 
   function initializeAsPeer(host: string) {
+    if (getPeers().includes(host)) return;
     return new Promise<DataConnection>((resolve, reject) => {
       const connection = peer.connect(host, { reliable: RELIABLE });
       const timeout = setTimeout(() => {
