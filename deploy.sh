@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+rm -rf dist
+
 REPO_NAME=multiplayer-game
 
 # abort on errors
@@ -17,6 +19,6 @@ git init
 git add -A
 git commit -m 'deploy'
 
-git push -f "git@github.com:SamuelDavis/$REPO_NAME.git" master:gh-pages
+git push -f "git@github.com:SamuelDavis/$REPO_NAME.git" main:gh-pages
 
 cd -
