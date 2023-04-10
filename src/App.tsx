@@ -6,14 +6,8 @@ import {
   For,
 } from "solid-js";
 import world, { update } from "./game";
-import networking from "./networking";
+import networking, { NotConnectedError } from "./networking";
 import Peer from "peerjs";
-
-class NotConnectedError extends Error {
-  constructor() {
-    super("Not connected to signaling server.");
-  }
-}
 
 type Message = {
   peer: Peer["id"];
@@ -88,6 +82,7 @@ const App: Component = () => {
       networking.initializeAsPeer(host)?.then((connection) => {
         connection.on("data", setWorld);
         setOnMessage(() => (message) => {
+          console.debug({ message });
           connection.send(message);
         });
       });

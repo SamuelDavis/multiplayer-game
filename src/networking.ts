@@ -1,8 +1,17 @@
 import Peer, { type DataConnection } from "peerjs";
 import { createMemo, createRoot, createSignal } from "solid-js";
 
+const CONNECTION_TIMEOUT = 3000;
+const RELIABLE = true;
+
 class NetworkError extends Error {
   public readonly date = new Date();
+}
+
+export class NotConnectedError extends NetworkError {
+  constructor() {
+    super("Not connected to signaling server.");
+  }
 }
 
 class SignalingServerConnectionFailure extends NetworkError {
@@ -42,20 +51,8 @@ class HostConnectionLost extends NetworkError {
 }
 
 export default createRoot(() => {
-  const CONNECTION_TIMEOUT = 3000;
-  const RELIABLE = true;
-  const peer =
-    window.location.hostname === "localhost"
-      ? new Peer({
-          host: "localhost",
-          port: 9000,
-          path: "/",
-          key: "local",
-        })
-      : new Peer();
   const [getPeer, setPeer] = createSignal<Peer>();
   const [getConnections, setConnections] = createSignal<DataConnection[]>([]);
-  const [getErrors, setErrors] = createSignal<NetworkError[]>([]);
   const [getIncomingConnection, setIncomingConnection] =
     createSignal<DataConnection>();
   const getPeerId = createMemo(() => getPeer()?.id);
@@ -64,30 +61,42 @@ export default createRoot(() => {
     getConnections().map((connection) => connection.peer)
   );
 
-  function pushError(error: NetworkError) {
-    console.error(error);
-    setErrors((rest) => [...rest, error]);
+  function initializePeer() {
+    return new Promise<Peer>((resolve) => {
+      const peer =
+        window.location.hostname === "localhost"
+          ? new Peer({
+              host: "localhost",
+              port: 9000,
+              path: "/",
+              key: "local",
+            })
+          : new Peer();
+
+      const timeout = setTimeout(() => {
+        peer.destroy();
+        throw new SignalingServerConnectionFailure();
+      }, CONNECTION_TIMEOUT);
+
+      peer.on("open", () => {
+        clearTimeout(timeout);
+        peer.on("close", () => {
+          peer.destroy();
+          throw new SignalingServerConnectionLost();
+        });
+        resolve(peer);
+      });
+    });
   }
 
-  const timeout = setTimeout(() => {
-    peer.destroy();
-    pushError(new SignalingServerConnectionFailure());
-  }, CONNECTION_TIMEOUT);
-  peer.on("open", () => {
-    clearTimeout(timeout);
-    peer.on("close", () => {
-      peer.destroy();
-      pushError(new SignalingServerConnectionLost());
-    });
-    setPeer(peer);
-  });
-
   function initializeAsHost() {
+    const peer = getPeer();
+    if (!peer) throw new NotConnectedError();
     peer.on("connection", (connection) => {
       if (getPeers().includes(connection.peer)) return;
       const timeout = setTimeout(() => {
         connection.close();
-        pushError(new PeerConnectionFailure(connection.peer));
+        throw new PeerConnectionFailure(connection.peer);
       }, CONNECTION_TIMEOUT);
       connection.on("open", () => {
         clearTimeout(timeout);
@@ -95,7 +104,7 @@ export default createRoot(() => {
           setConnections((rest) =>
             rest.filter((conn) => conn.peer !== connection.peer)
           );
-          pushError(new PeerConnectionLost(connection.peer));
+          throw new PeerConnectionLost(connection.peer);
         });
         setConnections((rest) => [...rest, connection]);
         setIncomingConnection(connection);
@@ -105,23 +114,25 @@ export default createRoot(() => {
 
   function initializeAsPeer(host: string) {
     if (getPeers().includes(host)) return;
-    return new Promise<DataConnection>((resolve, reject) => {
+    const peer = getPeer();
+    if (!peer) throw new NotConnectedError();
+    return new Promise<DataConnection>((resolve) => {
       const connection = peer.connect(host, { reliable: RELIABLE });
       const timeout = setTimeout(() => {
-        const error = new HostConnectionFailure(host);
         connection.close();
-        pushError(error);
-        reject(error);
+        throw new HostConnectionFailure(host);
       }, CONNECTION_TIMEOUT);
       connection.on("open", () => {
         clearTimeout(timeout);
         connection.on("close", () => {
-          pushError(new HostConnectionLost(host));
+          throw new HostConnectionLost(host);
         });
         resolve(connection);
       });
     });
   }
+
+  initializePeer().then(setPeer);
 
   return {
     getIncomingConnection,
@@ -130,7 +141,6 @@ export default createRoot(() => {
     initializeAsPeer,
     getPeerId,
     getConnections,
-    getErrors,
     getPeers,
   };
 });
